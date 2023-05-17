@@ -15,6 +15,9 @@
 #include <string.h>
 #include <winbase.h>
 #include <wincon.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 #include "PyStand.h"
 
@@ -272,12 +275,23 @@ int PyStand::RunString(const char *script)
 int PyStand::DetectScript()
 {
 	// init: _script (init script like PyStand.int or PyStand.py)
-	int size = (int)_pystand.size() - 1;
+	ptrdiff_t size = (ptrdiff_t)_pystand.size() - 1;
 	for (; size >= 0; size--) {
 		if (_pystand[size] == L'.') break;
 	}
-	if (size < 0) size = (int)_pystand.size();
+	if (size < 0) size = (ptrdiff_t)_pystand.size();
 	std::wstring main = _pystand.substr(0, size);
+  ptrdiff_t pathsep = size-1;
+  for (; pathsep >= 0; --pathsep) {
+    if (_pystand[pathsep] == L'\\' || _pystand[pathsep] == L'/') break;
+  }
+  if (pathsep < 0) {
+    std::wstring msg = L"Cannot start from " + _pystand;
+    MessageBoxW(NULL, msg.c_str(), L"Error", MB_OK);
+    return -1;
+  }
+  std::wstring parentpath = main.substr(0, pathsep);
+  std::wstring basename = main.substr(pathsep+1);
 	std::vector<const wchar_t*> exts;
 	std::vector<std::wstring> scripts;
 	_script.clear();
@@ -292,15 +306,18 @@ int PyStand::DetectScript()
 		exts.push_back(L".int");
 		exts.push_back(L".py");
 		exts.push_back(L".pyw");
-		for (int i = 0; i < (int)exts.size(); i++) {
-			std::wstring test = main + exts[i];
-			scripts.push_back(test);
-			if (PathFileExistsW(test.c_str())) {
-				_script = test;
-				break;
-			}
-		}
-		if (_script.size() == 0) {
+    std::wstring prefixes[] = {L"", L"src\\"};
+    for (auto&& prefix: prefixes) {
+      for (int i = 0; i < (int)exts.size(); i++) {
+        std::wstring test = parentpath + L'\\' + prefix + basename + exts[i];
+        scripts.push_back(test);
+        if (PathFileExistsW(test.c_str())) {
+          _script = test;
+          break;
+        }
+      }
+    }
+		if (_script.empty()) {
 			std::wstring msg = L"Can't find either of:\r\n";
 			for (int j = 0; j < (int)scripts.size(); j++) {
 				msg += scripts[j] + L"\r\n";
